@@ -1,3 +1,4 @@
+```
 update pages set content = '<h1>Hello mdboostrap!</h1>Smile 2<i class="fas fa-smile"></i></br></br><button type="button" class="btn btn-primary" data-mdb-ripple-init>Button</button>
 ' where id = 3;
 
@@ -11,3 +12,7 @@ insert into pages (template, title, content) VALUES ('markdown', 'My markdown', 
 Sample text.
 
 [link](http://example.com)');
+
+
+update pages set name = 'one' where id = 1;
+```

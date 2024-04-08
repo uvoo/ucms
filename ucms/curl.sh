@@ -11,7 +11,14 @@ curl -X POST http://localhost:8080/page \
   -H "Content-Type: application/json" \
   -d '{"title": "My mdbootstrap", "content": "<h1>Hello mdboostrap!<h1>Smile<i class=\"fas fa-smile\"></i>", "template": "mdbootstrap"}'
 }
-mdboostrap
+
+y(){
+curl -X POST http://localhost:8080/pages \
+  -H "Content-Type: application/json" \
+  -d '{"name": "test this"}'
+}
+y
+# mdboostrap
 exit
  curl localhost:8080/markdown/1
 

@@ -15,4 +15,6 @@ Sample text.
 
 
 update pages set name = 'one' where id = 1;
+
+sqlite3 ucms.db "select * from pages"
 ```

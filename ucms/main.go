@@ -22,37 +22,135 @@ import (
 	"regexp"
 	"strconv"
 	"text/template"
-	// "uvoo.io/ucms/constants"
+	"uvoo.io/ucms/html_templates"
+
+	"errors"
+	"flag"
+	// "fmt"
+	"log"
+	// "net/http"
+	"sync"
+
+	// "github.com/labstack/echo/v4"
+	"github.com/oschwald/maxminddb-golang"
+	"net"
 )
 
 type Page struct {
 	// ID       int    `gorm:"primary_key"`
-	// ID   uuid.UUID `gorm:"type:uuid;primary_key;"`
 	// ID             uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4();primary_key;"`
-	// ID             uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4()"`
-	ID uuid.UUID `gorm:"type:uuid;primaryKey"`
-	// ID   uuid.UUID `gorm:"type:uuid;primary_key;"`
-	Title    string `json:"title"`
-	Content  string `json:"content"`
-	Template string `json:"template"`
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	Visits   int    `json:"visits"`
+	// ID   string `json:"id" gorm:"type:uuid;primary_key"`
+	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Title    string    `json:"title"`
+	Content  string    `json:"content"`
+	Template string    `json:"template"`
+	Name     string    `json:"name"`
+	Path     string    `json:"path"`
+	Visits   int       `json:"visits"`
 	// Slug string `json:"slug"`
 }
 
-/*
-    HTMLType id
-type HTMLType struct {
-  ID   int
-  Name string
-}
-*/
-
 var db *gorm.DB
 
+func WIPGetIPCityISOCode() {
+	// Open the MaxMind GeoIP2 City database
+	db, err := maxminddb.Open("GeoIP2-City.mmdb")
+	if err != nil {
+		fmt.Println("Error opening database:", err)
+		return
+	}
+	defer db.Close()
+
+	// IP address to look up
+	ip := net.ParseIP("8.8.8.8") // Example IP address, you can change it to any IP you want to look up
+
+	// Define a struct to store the result of the lookup
+	var record struct {
+		City struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"city"`
+		Country struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"country"`
+	}
+
+	// Perform the lookup
+	err = db.Lookup(ip, &record)
+	if err != nil {
+		fmt.Println("Error looking up IP address:", err)
+		return
+	}
+
+	// Print the result
+	cityName := record.City.Names["en"]
+	countryName := record.Country.Names["en"]
+	fmt.Printf("IP address %s is located in %s, %s\n", ip, cityName, countryName)
+}
+
+func isPrivateIP(ip net.IP) bool {
+	// fmt.Println("IPAddress: %v", ip)
+	privateIPv4Blocks := []*net.IPNet{
+		{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
+		{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
+		{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},
+		{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},
+	}
+
+	// Private IPv6 addresses (ULA - Unique Local Addresses and Link-local)
+	privateIPv6Blocks := []*net.IPNet{
+		{IP: net.ParseIP("::1"), Mask: net.CIDRMask(7, 128)},
+		{IP: net.ParseIP("fc00::"), Mask: net.CIDRMask(7, 128)},
+		{IP: net.ParseIP("fe80::"), Mask: net.CIDRMask(10, 128)},
+	}
+
+	for _, block := range privateIPv4Blocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+
+	for _, block := range privateIPv6Blocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func GetIPCountryISOCode(ipAddress string) (string, error) {
+	ipo := net.ParseIP(ipAddress)
+	if isPrivateIP(ipo) == true {
+		return "Private", nil
+	}
+	db, err := maxminddb.Open("GeoLite2-Country.mmdb")
+	if err != nil {
+		msg := fmt.Sprintf("Error opening database:", err)
+		return "", errors.New(msg)
+	}
+	defer db.Close()
+
+	ip := net.ParseIP(ipAddress)
+	if ip == nil {
+		msg := fmt.Sprintf("Invalid IP address:", ipAddress)
+		return "", errors.New(msg)
+	}
+
+	var record struct {
+		Country struct {
+			ISOCode string `maxminddb:"iso_code"`
+		} `maxminddb:"country"`
+	}
+	err = db.Lookup(ip, &record)
+	if err != nil {
+		msg := fmt.Sprintf("Error looking up IP address:", err)
+		return "", errors.New(msg)
+	}
+	return record.Country.ISOCode, nil
+}
+
 func isUUID(str string) bool {
-	uuidPattern := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`
+	uuidPattern := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
 	regex := regexp.MustCompile(uuidPattern)
 	return regex.MatchString(str)
 }
@@ -63,7 +161,6 @@ func isNumber(s string) bool {
 }
 
 func authenticate(username, password string, c echo.Context) (bool, error) {
-	// Check username and password here, e.g., from a database or predefined credentials
 	if username == "username" && password == "password" {
 		return true, nil
 	}
@@ -83,54 +180,7 @@ func mdToHTML(md []byte) []byte {
 }
 
 func getHTML(body string, title string, tplName string) (string, error) {
-	const tplMarkdown = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{{.Title}}</title>
-    </head>
-    <body>
-	   {{ .Body }}
-    </body>
-    </html>
-`
-	const tplMDBootstrap = `
-	<!DOCTYPE html>
-	<html lang="en">
-	<head>
-		<meta charset="UTF-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Hello World</title>
-		<!-- Include Bootstrap 5 CSS -->
-		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-		<!-- Include MDBootstrap CSS -->
-		<link href="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.19.1/css/mdb.min.css" rel="stylesheet">
-		<!-- Include FontAwesome CSS -->
-		<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
-	</head>
-    <body>
-	   {{ .Body }}
-	   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    </body>
-	</html>
-  `
-	const tplError = `
-  E: Unsupported template
-  `
-	/*
-		<body>
-			<div class="container mt-5">
-				<h1>Hello, World!</h1>
-				<p>This is a simple HTML page served by Labstack Echo with Bootstrap 5, MDBootstrap, and FontAwesome.</p>
-				<i class="fas fa-smile"></i> <!-- FontAwesome icon -->
-			</div>
 
-			<!-- Include Bootstrap 5 JS (Optional) -->
-			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-		</body>
-	*/
 	data := struct {
 		Title string
 		Body  string
@@ -144,11 +194,11 @@ func getHTML(body string, title string, tplName string) (string, error) {
 	// Determine the template content based on the template name
 	switch tplName {
 	case "markdown":
-		tplContent = tplMarkdown
+		tplContent = html_templates.Markdown
 	case "mdbootstrap":
-		tplContent = tplMDBootstrap
+		tplContent = html_templates.MDBootstrap
 	default:
-		tplContent = tplError
+		tplContent = html_templates.Error
 	}
 
 	t := template.Must(template.New(tplName).Parse(tplContent))
@@ -163,9 +213,11 @@ func getHTML(body string, title string, tplName string) (string, error) {
 	return output, nil
 }
 
-func main() {
-	e := echo.New()
+func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.WaitGroup) {
+	defer wg.Done()
 
+	// Create a new Echo instance
+	e := echo.New()
 	var err error
 	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
 	if err != nil {
@@ -178,46 +230,40 @@ func main() {
 	protectedRoutes := e.Group("")
 	protectedRoutes.Use(middleware.BasicAuth(authenticate))
 
-	e.GET("/editor", func(c echo.Context) error {
-		const editorHTML = `
-	<!DOCTYPE html>
-	<html lang="en">
-	<head>
-		<meta charset="UTF-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>WYSIWYG Editor Example</title>
-		<!-- Include CKEditor -->
-		<script src="https://cdn.ckeditor.com/ckeditor5/37.0.0/classic/ckeditor.js"></script>
-	</head>                                                                                                                                                                                      <body>                                                                                                                                                                                           <h1>WYSIWYG Editor Example</h1>                                                                                                                                                              <form action="/submit" method="POST">
-			<textarea id="editor" name="content"></textarea>
-			<button type="submit">Submit</button>
-		</form>                                                                                                                                                                                                                                                                                                                                                                                   <script>                                                                                                                                                                                         // Initialize CKEditor with source editing enabled
-			ClassicEditor
-				.create(document.querySelector('#editor'), {
-					toolbar: ['', 'heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', '|', 'indent', 'outdent', '|', 'blockQuote', 'insertTable', '|', 'undo', 'redo', '|', 'source', 'uploadImage', 'blockQuote', 'codeBlock'],
-	/*
-	toolbar: {
-		items: [
-			'undo', 'redo',
-			'|', 'heading',
-			'|', 'fontfamily', 'fontsize', 'fontColor', 'fontBackgroundColor',
-			'|', 'bold', 'italic', 'strikethrough', 'subscript', 'superscript', 'code',
-			'|', 'link', 'uploadImage', 'blockQuote', 'codeBlock',
-			'|', 'bulletedList', 'numberedList', 'todoList', 'outdent', 'indent'
-		],
-		shouldNotGroupWhenFull: false
-	}
-	*/
-					language: 'en'
-				})
-				.catch(error => {
-					console.error(error);
-				});
-		</script>                                                                                                                                                                                </body>
-	</html>
-		`
+	protectedRoutes.POST("/page", createPage)
+	protectedRoutes.PATCH("/page/:id", updatePage)
 
-		return c.HTML(http.StatusOK, fmt.Sprintf("%s", editorHTML))
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			notAllowedIPAddress := "192.168.1.100" // Set the allowed IP address here
+
+			clientIPAddress := c.RealIP()
+			countryCode, err := GetIPCountryISOCode(clientIPAddress)
+			if err != nil {
+				msg := fmt.Sprintf("Error:", err)
+				fmt.Println(msg)
+			}
+			// fmt.Println(countryCode)
+			if clientIPAddress == notAllowedIPAddress {
+				return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+			}
+			if countryCode == "US" || countryCode == "Private" {
+				return next(c)
+			}
+			/*
+			   if clientIPAddress == notAllowedIPAddress || countryCode != "US" || countryCode != "Private"{
+			           return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+			   }
+			*/
+			return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+
+			// return next(c)
+		}
+	})
+
+	e.GET("/editor", func(c echo.Context) error {
+
+		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html_templates.Editor))
 	})
 
 	e.GET("/page/:id", func(c echo.Context) error {
@@ -226,7 +272,7 @@ func main() {
 		id := c.Param("id")
 		var page Page
 		if isUUID(id) {
-			if err := db.First(&page, id).Error; err != nil {
+			if err := db.Where("id = ?", id).First(&page).Error; err != nil {
 				return c.String(http.StatusNotFound, "Page not found")
 			}
 		} else {
@@ -252,21 +298,86 @@ func main() {
 		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html))
 	})
 
-	protectedRoutes.POST("/page", func(c echo.Context) error {
-		page := new(Page)
-		if err := c.Bind(page); err != nil {
-			return err
-		}
-		page.ID = uuid.New()
-		/*
-		   if page.ID == uuid.Nil {
-		       page.ID = uuid.New()
-		   }
-		*/
-
-		db.Create(&page)
-		return c.JSON(http.StatusCreated, page)
+	e.GET("/", func(c echo.Context) error {
+		xForwardedPort := c.Request().Header.Get("X-Forwarded-Port")
+		return c.String(http.StatusOK, fmt.Sprintf("port: %s", xForwardedPort))
 	})
 
-	e.Logger.Fatal(e.Start(":8080"))
+	e.GET("/x-forwarded-port", func(c echo.Context) error {
+		xForwardedPort := c.Request().Header.Get("X-Forwarded-Port")
+		return c.String(http.StatusOK, fmt.Sprintf("X-Forwarded-Port: %s", xForwardedPort))
+	})
+
+	e.GET("/ip", func(c echo.Context) error {
+		clientIPAddress := c.RealIP()
+		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
+	})
+
+	address := fmt.Sprintf(":%s", port)
+	fmt.Printf("Server is listening on port %s\n", port)
+	if isTLS {
+		if err := e.StartTLS(address, certFile, keyFile); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start HTTPS server on port %s: %v", port, err)
+		}
+	} else {
+		if err := e.Start(address); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start HTTP server on port %s: %v", port, err)
+		}
+	}
+}
+
+func updatePage(c echo.Context) error {
+	fmt.Println("foo")
+	id := c.Param("id")
+	page := new(Page)
+
+	if err := db.First(&page, "id = ?", id).Error; err != nil {
+		return err
+	}
+
+	if err := c.Bind(page); err != nil {
+		return err
+	}
+
+	if err := db.Save(page).Error; err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, page)
+}
+
+func createPage(c echo.Context) error {
+	page := new(Page)
+	if err := c.Bind(page); err != nil {
+		return err
+	}
+	if page.ID == uuid.Nil {
+		page.ID = uuid.New()
+	}
+	db.Create(&page)
+	return c.JSON(http.StatusCreated, page)
+}
+
+func main() {
+	httpPort := flag.String("http-port", "18080", "HTTP port number")
+	httpsPort := flag.String("https-port", "18443", "HTTPS port number")
+	flag.Parse()
+
+	certFile := "cert.pem"
+	keyFile := "key.pem"
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go startServer(*httpPort, false, "", "", &wg)
+
+	wg.Add(1)
+	go startServer(*httpsPort, true, certFile, keyFile, &wg)
+
+	wg.Wait()
 }

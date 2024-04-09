@@ -321,6 +321,26 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 			log.Fatalf("Failed to start HTTP server on port %s: %v", port, err)
 		}
 	}
+
+	e.GET("/x-forwarded-port", func(c echo.Context) error {
+		// Retrieve X-Forwarded-Port header from the request
+		xForwardedPort := c.Request().Header.Get("X-Forwarded-Port")
+
+		// Return the X-Forwarded-Port as response
+		return c.String(http.StatusOK, fmt.Sprintf("X-Forwarded-Port: %s", xForwardedPort))
+	})
+
+	e.GET("/ip", func(c echo.Context) error {
+		// Retrieve client's IP address
+		clientIPAddress := c.RealIP()
+		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		// Return the IP address as response
+		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
+	})
 }
 
 func updatePage(c echo.Context) error {
@@ -363,13 +383,13 @@ func main() {
 	certFile := "cert.pem"
 	keyFile := "key.pem"
 
-/*
-    if err := initDB(); err != nil {
-        panic(err)
-    }
+	/*
+	   if err := initDB(); err != nil {
+	       panic(err)
+	   }
 
-    // Auto Migrate
-    db.AutoMigrate(&Page{})
+	   // Auto Migrate
+	   db.AutoMigrate(&Page{})
 	*/
 	var err error
 	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
@@ -380,7 +400,6 @@ func main() {
 		panic(err)
 		// e.Logger.Fatal(err)
 	}
-
 
 	var wg sync.WaitGroup
 

@@ -218,14 +218,6 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 
 	// Create a new Echo instance
 	e := echo.New()
-	var err error
-	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
-	if err != nil {
-		e.Logger.Fatal(err)
-	}
-	if err := db.AutoMigrate(&Page{}); err != nil {
-		e.Logger.Fatal(err)
-	}
 
 	protectedRoutes := e.Group("")
 	protectedRoutes.Use(middleware.BasicAuth(authenticate))
@@ -370,6 +362,25 @@ func main() {
 
 	certFile := "cert.pem"
 	keyFile := "key.pem"
+
+/*
+    if err := initDB(); err != nil {
+        panic(err)
+    }
+
+    // Auto Migrate
+    db.AutoMigrate(&Page{})
+	*/
+	var err error
+	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
+	if err := db.AutoMigrate(&Page{}); err != nil {
+		panic(err)
+		// e.Logger.Fatal(err)
+	}
+
 
 	var wg sync.WaitGroup
 

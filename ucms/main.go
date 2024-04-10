@@ -35,10 +35,12 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 	"net"
 	"strings"
+	"time"
 )
 
 type Status string
 type Action string
+type Direction string
 
 const (
 	Pending  Status = "pending"
@@ -52,6 +54,11 @@ const (
 	Observe Action = "observe"
 )
 
+const (
+	Inbound   Direction = "inbound"
+	// Outbound    Direction = "outbound"
+)
+
 type NetIPNet struct {
 	*net.IPNet
 }
@@ -62,27 +69,39 @@ func (n NetIPNet) Contains(ip net.IP) bool {
 }
 
 // SrcIP   net.IP `gorm:"uniqueIndex"`
-	// SrcIPNet *net.IPNet `gorm:"uniqueIndex"`
+// SrcIPNet *net.IPNet `gorm:"uniqueIndex"`
 type FWRule struct {
-	ID       uint       `gorm:"primaryKey"`
+	ID uint `gorm:"primaryKey"`
 	// SrcIPNet NetIPNet       `gorm:"uniqueIndex;type:jsonb"`
 	// SrcIPNet string `gorm:"uniqueIndex"`
-	SrcIPNet    string `gorm:"uniqueIndex:idx_src_ip_action"`
+	// SrcIPNet string `gorm:"uniqueIndex:idx_action_src_ip_net"`
+	SrcIPNet string `gorm:"idx_direction__action__src_ip_net"`
 	// Action   Action
 	// SrcIP    string `gorm:"uniqueIndex:idx_src_ip_action"`
-	Action   Action `gorm:"uniqueIndex:idx_src_ip_action"`
+	Action Action `gorm:"not null:default:'allow':idx_direction__action__src_ip_net"`
+	// Priority  int `gorm:"not null:idx_action__priority"`
+	Priority  int `gorm:"not null:idx_direction__priority"`
+	// Direction Direction `gorm:"not null:default:'inbound':idx_direction__priority:idx_direction__action__src_ip_net"`
+	Direction Direction `gorm:"default:'inbound':idx_direction__priority:idx_direction__action__src_ip_net"`
 
-	Active   bool `gorm:"default:true"`
-	Log      bool `gorm:"default:false"`
-	Note     string
+	Active bool `gorm:"default:true"`
+	Log    bool `gorm:"default:false"`
+	Note   string
+    CreatedAt time.Time
+    UpdatedAt time.Time
+    DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
 type CountryCodeRule struct {
 	ID     uint `gorm:"primaryKey"`
-	Code   string
-	Action Action
+	Code   string `gorm:"not null"`
+	Action Action `gorm:"not null"`
+	Priority  int `gorm:"not null:idx_action__priority"`
 	Active bool `gorm:"default:true"`
 	Log    bool `gorm:"default:false"`
+    CreatedAt time.Time
+    UpdatedAt time.Time
+    DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
 type Page struct {
@@ -97,6 +116,9 @@ type Page struct {
 	Path     string    `json:"path"`
 	Visits   int       `json:"visits"`
 	// Slug string `json:"slug"`
+    CreatedAt time.Time
+    UpdatedAt time.Time
+    DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
 var db *gorm.DB
@@ -340,28 +362,53 @@ func CheckIPInSubnet(ipStr string, subnetStr string) (bool, error) {
 }
 
 func allowIP(clientIP string) bool {
-	var rules []FWRule
-	db.Find(&rules)
-// net.ParseIP(clientIPAddress)
-	for _, rule := range rules {
+	var fwRules []FWRule
+	db.Find(&fwRules)
+	// net.ParseIP(clientIPAddress)
+	for _, fwRule := range fwRules {
 		// if rule.Active == true && rule.Action == Deny && rule.SrcIPNet.Contains(ip) {
 		var contains bool
-		contains, _ = CheckIPInSubnet(clientIP, rule.SrcIPNet)
-		if rule.Active == true && rule.Action == Deny && contains == true {
+		contains, _ = CheckIPInSubnet(clientIP, fwRule.SrcIPNet)
+		if fwRule.Active == true && fwRule.Action == Deny && contains == true {
 			return false
-		} else if rule.Active == true && rule.Action == Allow && contains == true {
+		} else if fwRule.Active == true && fwRule.Action == Allow && contains == true {
 			return true
 		} else {
 			return false
 		}
 	}
-/*
-			countryCode, err := GetIPCountryISOCode(clientIPAddress)
-			if err != nil {
-				msg := fmt.Sprintf("Error:", err)
-				fmt.Println(msg)
-			}
-*/
+
+	clientCountryCode, err := GetIPCountryISOCode(clientIP)
+	if err != nil {
+		msg := fmt.Sprintf("Error:", err)
+		fmt.Println(msg)
+	}
+	var countryCodeRules []CountryCodeRule
+	db.Find(&countryCodeRules)
+	// net.ParseIP(clientIPAddress)
+	for _, countryCodeRule := range countryCodeRules {
+		// if countryCode == "US" || countryCode == "Private" {
+		if countryCodeRule.Code == clientCountryCode {
+			return true 
+		}
+	}
+
+	// fmt.Println(countryCode)
+	/*
+		if clientIPAddress == notAllowedIPAddress {
+			return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+		}
+		if countryCode == "US" || countryCode == "Private" {
+			return next(c)
+		}
+	*/
+	/*
+		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		if err != nil {
+			msg := fmt.Sprintf("Error:", err)
+			fmt.Println(msg)
+		}
+	*/
 
 	return false
 }
@@ -383,21 +430,21 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 			// notAllowedIPAddress := "192.168.1.100" // Set the allowed IP address here
 
 			clientIPAddress := c.RealIP()
-/*
-			countryCode, err := GetIPCountryISOCode(clientIPAddress)
-			if err != nil {
-				msg := fmt.Sprintf("Error:", err)
-				fmt.Println(msg)
-			}
-*/
+			/*
+				countryCode, err := GetIPCountryISOCode(clientIPAddress)
+				if err != nil {
+					msg := fmt.Sprintf("Error:", err)
+					fmt.Println(msg)
+				}
+			*/
 			// fmt.Println(countryCode)
 			/*
-			if clientIPAddress == notAllowedIPAddress {
-				return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
-			}
-			if countryCode == "US" || countryCode == "Private" {
-				return next(c)
-			}
+				if clientIPAddress == notAllowedIPAddress {
+					return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+				}
+				if countryCode == "US" || countryCode == "Private" {
+					return next(c)
+				}
 			*/
 
 			// clientIPAddress2 := toIPNet(clientIPAddress)
@@ -588,10 +635,15 @@ func main() {
 		panic(err)
 	}
 
-   if err := db.Exec("CREATE UNIQUE INDEX idx_src_ip_action ON fw_rules (src_ip_net, action)").Error; err != nil {
-        // panic("failed to create unique index")
-        fmt.Println("failed to create unique index")
-    }
+	// if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_action__src_ip_net ON fw_rules (src_ip_net, action)").Error; err != nil {
+	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_direction__priority ON fw_rules (direction, priority)").Error; err != nil {
+		// panic("failed to create unique index")
+		fmt.Println("failed to create unique index")
+	}
+	// if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_action__priority ON fw_rules (action, priority)").Error; err != nil {
+	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_direction__action__src_ip_net ON fw_rules (direction, action, src_ip_net)").Error; err != nil {
+		fmt.Println("failed to create unique index")
+	}
 
 	var wg sync.WaitGroup
 

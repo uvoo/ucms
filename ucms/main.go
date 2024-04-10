@@ -336,9 +336,10 @@ func CheckIPInSubnet(ipStr string, subnetStr string) (bool, error) {
 
 func allowIP(clientIP string) bool {
 	var fwRules []FWRule
-	db.Find(&fwRules)
+	db.Order("priority ASC").Find(&fwRules)
 	// net.ParseIP(clientIPAddress)
 	for _, fwRule := range fwRules {
+		fmt.Println("fwRule: %v", fwRule)
 		var contains bool
 		contains, _ = CheckIPInSubnet(clientIP, fwRule.SrcIPNet)
 		if fwRule.Active == true && fwRule.Action == Deny && contains == true {
@@ -356,7 +357,7 @@ func allowIP(clientIP string) bool {
 		fmt.Println(msg)
 	}
 	var countryCodeRules []CountryCodeRule
-	db.Find(&countryCodeRules)
+	db.Order("priority ASC").Find(&countryCodeRules)
 	for _, countryCodeRule := range countryCodeRules {
 		if countryCodeRule.Code == clientCountryCode {
 			return true

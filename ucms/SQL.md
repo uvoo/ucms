@@ -34,4 +34,8 @@ sqlite3 ucms.db "insert into country_code_rules (code, action) values ('Private'
 sqlite3 ucms.db "insert into country_code_rules (code, action) values ('US', 'allow')"
 sqlite3 ucms.db "select * from country_code_rules"
 sqlite3 ucms.db "delete from country_code_rules"
+
+sqlite3 ucms.db "delete from fw_rules;"
+sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10.1.1.0/24', 'allow', 10)"
+sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10.1.1.0/24', 'drop', 9)"
 ```

@@ -34,7 +34,56 @@ import (
 	// "github.com/labstack/echo/v4"
 	"github.com/oschwald/maxminddb-golang"
 	"net"
+	"strings"
 )
+
+type Status string
+type Action string
+
+const (
+	Pending  Status = "pending"
+	Approved Status = "approved"
+	Rejected Status = "rejected"
+)
+
+const (
+	Allow   Action = "allow"
+	Deny    Action = "deny"
+	Observe Action = "observe"
+)
+
+type NetIPNet struct {
+	*net.IPNet
+}
+
+// Contains checks if the IP is within the subnet.
+func (n NetIPNet) Contains(ip net.IP) bool {
+	return n.IPNet.Contains(ip)
+}
+
+// SrcIP   net.IP `gorm:"uniqueIndex"`
+	// SrcIPNet *net.IPNet `gorm:"uniqueIndex"`
+type FWRule struct {
+	ID       uint       `gorm:"primaryKey"`
+	// SrcIPNet NetIPNet       `gorm:"uniqueIndex;type:jsonb"`
+	// SrcIPNet string `gorm:"uniqueIndex"`
+	SrcIPNet    string `gorm:"uniqueIndex:idx_src_ip_action"`
+	// Action   Action
+	// SrcIP    string `gorm:"uniqueIndex:idx_src_ip_action"`
+	Action   Action `gorm:"uniqueIndex:idx_src_ip_action"`
+
+	Active   bool `gorm:"default:true"`
+	Log      bool `gorm:"default:false"`
+	Note     string
+}
+
+type CountryCodeRule struct {
+	ID     uint `gorm:"primaryKey"`
+	Code   string
+	Action Action
+	Active bool `gorm:"default:true"`
+	Log    bool `gorm:"default:false"`
+}
 
 type Page struct {
 	// ID       int    `gorm:"primary_key"`
@@ -213,6 +262,110 @@ func getHTML(body string, title string, tplName string) (string, error) {
 	return output, nil
 }
 
+func getSubnetFromIP(ipString string) (*net.IPNet, error) {
+	// func getSubnetFromIP(ipString string) (net.IP, error) {
+	if !strings.Contains(ipString, "/") {
+		// Assuming it's IPv4, add /32
+		if strings.Contains(ipString, ":") {
+			ipString += "/128" // IPv6 address
+		} else {
+			ipString += "/32" // IPv4 address
+		}
+	}
+	// Parse the CIDR notation directly
+	// _, subnet, err := net.ParseCIDR("192.168.1.0/24")
+	_, subnet, err := net.ParseCIDR(ipString)
+	if err != nil {
+		fmt.Println("Invalid CIDR notation:", err)
+		return nil, err
+	}
+	return subnet, nil
+}
+
+func subnetContains(subnet1, subnet2 string) bool {
+	// Parse subnets
+	_, subnetObj1, err := net.ParseCIDR(subnet1)
+	if err != nil {
+		return false
+	}
+
+	_, subnetObj2, err := net.ParseCIDR(subnet2)
+	if err != nil {
+		return false
+	}
+
+	// Check if subnet2 is contained in subnet1
+	// return subnetObj1.Contains(subnetObj2.IP) && subnetObj1.Contains(subnetObj2.Mask.IP)
+	return subnetObj1.Contains(subnetObj2.IP)
+}
+
+func toIPNet(cidr string) net.IPNet {
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic(err)
+	}
+	return *ipnet
+}
+
+func xallowIP(ip net.IP) bool {
+	// subnet:getSubnetFromIP(ip)
+	var rule FWRule
+	if err := db.Where("?", ip.String()).First(&rule).Error; err != nil {
+		return false
+	}
+
+	if rule.Action == Allow {
+		return true
+	} else if rule.Action == Deny {
+		return false
+	}
+
+	// No match found, default action
+	return false
+}
+
+// func CheckIPInSubnet(ipStr string, subnetStr string) (bool, error) {
+func CheckIPInSubnet(ipStr string, subnetStr string) (bool, error) {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false, fmt.Errorf("invalid IP address: %s", ipStr)
+	}
+
+	_, subnet, err := net.ParseCIDR(subnetStr)
+	if err != nil {
+		return false, fmt.Errorf("invalid subnet: %s", subnetStr)
+	}
+
+	return subnet.Contains(ip), nil
+}
+
+func allowIP(clientIP string) bool {
+	var rules []FWRule
+	db.Find(&rules)
+// net.ParseIP(clientIPAddress)
+	for _, rule := range rules {
+		// if rule.Active == true && rule.Action == Deny && rule.SrcIPNet.Contains(ip) {
+		var contains bool
+		contains, _ = CheckIPInSubnet(clientIP, rule.SrcIPNet)
+		if rule.Active == true && rule.Action == Deny && contains == true {
+			return false
+		} else if rule.Active == true && rule.Action == Allow && contains == true {
+			return true
+		} else {
+			return false
+		}
+	}
+/*
+			countryCode, err := GetIPCountryISOCode(clientIPAddress)
+			if err != nil {
+				msg := fmt.Sprintf("Error:", err)
+				fmt.Println(msg)
+			}
+*/
+
+	return false
+}
+
 func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -227,21 +380,40 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			notAllowedIPAddress := "192.168.1.100" // Set the allowed IP address here
+			// notAllowedIPAddress := "192.168.1.100" // Set the allowed IP address here
 
 			clientIPAddress := c.RealIP()
+/*
 			countryCode, err := GetIPCountryISOCode(clientIPAddress)
 			if err != nil {
 				msg := fmt.Sprintf("Error:", err)
 				fmt.Println(msg)
 			}
+*/
 			// fmt.Println(countryCode)
+			/*
 			if clientIPAddress == notAllowedIPAddress {
 				return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
 			}
 			if countryCode == "US" || countryCode == "Private" {
 				return next(c)
 			}
+			*/
+
+			// clientIPAddress2 := toIPNet(clientIPAddress)
+			// if allowIP(net.ParseCIDR(clientIPAddress)) {
+			// ip := net.ParseIP("192.168.1.1")
+			// if allowIP(net.ParseIP(clientIPAddress)) {
+			if allowIP(clientIPAddress) {
+				return next(c)
+			}
+			/*
+				var fwRule FWRule
+					if err := db.Where("net = ?", id).First(&page).Error; err != nil {
+						return c.String(http.StatusNotFound, "Page not found")
+					}
+			*/
+
 			/*
 			   if clientIPAddress == notAllowedIPAddress || countryCode != "US" || countryCode != "Private"{
 			           return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
@@ -301,6 +473,15 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 	})
 
 	e.GET("/ip", func(c echo.Context) error {
+		clientIPAddress := c.RealIP()
+		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
+	})
+	e.GET("/fwtest", func(c echo.Context) error {
 		clientIPAddress := c.RealIP()
 		countryCode, err := GetIPCountryISOCode(clientIPAddress)
 		if err != nil {
@@ -400,6 +581,17 @@ func main() {
 		panic(err)
 		// e.Logger.Fatal(err)
 	}
+	if err := db.AutoMigrate(&CountryCodeRule{}); err != nil {
+		panic(err)
+	}
+	if err := db.AutoMigrate(&FWRule{}); err != nil {
+		panic(err)
+	}
+
+   if err := db.Exec("CREATE UNIQUE INDEX idx_src_ip_action ON fw_rules (src_ip_net, action)").Error; err != nil {
+        // panic("failed to create unique index")
+        fmt.Println("failed to create unique index")
+    }
 
 	var wg sync.WaitGroup
 

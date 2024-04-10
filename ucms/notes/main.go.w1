@@ -1,0 +1,178 @@
+package main
+
+import (
+	"fmt"
+	// "io/ioutil"
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	// _ "github.com/mattn/go-sqlite3"
+	// "os"
+
+	"github.com/gomarkdown/markdown"
+	// "github.com/gomarkdown/markdown/ast"
+	"bytes"
+	"github.com/gomarkdown/markdown/html"
+	"github.com/gomarkdown/markdown/parser"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4/middleware"
+	"github.com/microcosm-cc/bluemonday"
+	"regexp"
+	"strconv"
+	"text/template"
+	"uvoo.io/ucms/html_templates"
+)
+
+type Page struct {
+	// ID       int    `gorm:"primary_key"`
+	// ID             uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4();primary_key;"`
+	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Title    string    `json:"title"`
+	Content  string    `json:"content"`
+	Template string    `json:"template"`
+	Name     string    `json:"name"`
+	Path     string    `json:"path"`
+	Visits   int       `json:"visits"`
+	// Slug string `json:"slug"`
+}
+
+var db *gorm.DB
+
+func isUUID(str string) bool {
+	// uuidPattern := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`
+	// uuidPattern := regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	// fmt.Println("boo", str)
+	uuidPattern := `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
+	regex := regexp.MustCompile(uuidPattern)
+	// fmt.Println(regex.MatchString(str))
+	return regex.MatchString(str)
+}
+
+func isNumber(s string) bool {
+	_, err := strconv.Atoi(s)
+	return err == nil
+}
+
+func authenticate(username, password string, c echo.Context) (bool, error) {
+	if username == "username" && password == "password" {
+		return true, nil
+	}
+	return false, nil
+}
+
+func mdToHTML(md []byte) []byte {
+	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
+	p := parser.NewWithExtensions(extensions)
+	doc := p.Parse(md)
+
+	htmlFlags := html.CommonFlags | html.HrefTargetBlank
+	opts := html.RendererOptions{Flags: htmlFlags}
+	renderer := html.NewRenderer(opts)
+
+	return markdown.Render(doc, renderer)
+}
+
+func getHTML(body string, title string, tplName string) (string, error) {
+
+	data := struct {
+		Title string
+		Body  string
+	}{
+		Title: title,
+		Body:  body,
+	}
+
+	var tplContent string
+
+	// Determine the template content based on the template name
+	switch tplName {
+	case "markdown":
+		tplContent = html_templates.Markdown 
+	case "mdbootstrap":
+		tplContent =  html_templates.MDBootstrap
+	default:
+		tplContent =  html_templates.Error 
+	}
+
+	t := template.Must(template.New(tplName).Parse(tplContent))
+
+	var buf bytes.Buffer
+	err := t.Execute(&buf, data)
+	if err != nil {
+		panic(err)
+	}
+
+	output := buf.String()
+	return output, nil
+}
+
+func main() {
+	e := echo.New()
+
+	// GORM
+	var err error
+	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+	if err := db.AutoMigrate(&Page{}); err != nil {
+		e.Logger.Fatal(err)
+	}
+
+	protectedRoutes := e.Group("")
+	protectedRoutes.Use(middleware.BasicAuth(authenticate))
+
+	e.GET("/editor", func(c echo.Context) error {
+
+		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html_templates.Editor))
+	})
+
+	e.GET("/page/:id", func(c echo.Context) error {
+		path := c.Request().URL.Path
+		fmt.Println("path: %s", path)
+		id := c.Param("id")
+		var page Page
+		if isUUID(id) {
+			if err := db.Where("id = ?", id).First(&page).Error; err != nil {
+				return c.String(http.StatusNotFound, "Page not found")
+			}
+		} else {
+			if err := db.Where("name = ?", id).First(&page).Error; err != nil {
+				return c.String(http.StatusNotFound, "Page not found")
+			}
+		}
+
+		var body string
+		if page.Template == "markdown" {
+			md := []byte(page.Content)
+			maybeUnsafeHTML := markdown.ToHTML(md, nil, nil)
+			tmp := bluemonday.UGCPolicy().SanitizeBytes(maybeUnsafeHTML)
+			body = fmt.Sprintf("%s", tmp)
+		} else {
+			body = fmt.Sprintf("%s", page.Content)
+		}
+		html, err := getHTML(fmt.Sprintf("%s", body), "test1", fmt.Sprintf("%s", page.Template))
+		if err != nil {
+			fmt.Println("err %s", err)
+		}
+
+		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html))
+	})
+
+	protectedRoutes.POST("/page", func(c echo.Context) error {
+		page := new(Page)
+		if err := c.Bind(page); err != nil {
+			return err
+		}
+		if page.ID == uuid.Nil {
+			page.ID = uuid.New()
+		}
+
+		db.Create(&page)
+		return c.JSON(http.StatusCreated, page)
+	})
+
+	e.Logger.Fatal(e.Start(":8080"))
+}

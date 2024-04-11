@@ -193,7 +193,7 @@ func isPrivateIP(ip net.IP) bool {
 func GetIPCountryISOCode(ipString string) (string, error) {
 	ipAddr := net.ParseIP(ipString)
 	if ipAddr == nil {
-		msg := fmt.Sprintf("Invalid IP address:", ipAddress)
+		msg := fmt.Sprintf("Invalid IP address:", ipAddr)
 		return "", errors.New(msg)
 	}
 
@@ -213,7 +213,7 @@ func GetIPCountryISOCode(ipString string) (string, error) {
 			ISOCode string `maxminddb:"iso_code"`
 		} `maxminddb:"country"`
 	}
-	err = db.Lookup(ip, &record)
+	err = db.Lookup(ipAddr, &record)
 	if err != nil {
 		msg := fmt.Sprintf("Error looking up IP address:", err)
 		return "", errors.New(msg)
@@ -345,7 +345,7 @@ func allowIP(clientIP string) bool {
 	db.Order("priority ASC").Find(&fwRules)
 	// net.ParseIP(clientIPAddress)
 	for _, fwRule := range fwRules {
-		fmt.Println("fwRule: %v", fwRule)
+		// fmt.Println("fwRule: %v", fwRule)
 		var contains bool
 		contains, _ = CheckIPInSubnet(clientIP, fwRule.SrcIPNet)
 		if fwRule.Active == true && fwRule.Action == Deny && contains == true {
@@ -371,89 +371,6 @@ func allowIP(clientIP string) bool {
 	}
 
 	return false
-}
-
-func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	e := echo.New()
-
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			clientIPAddress := c.RealIP()
-
-			if allowIP(clientIPAddress) {
-				return next(c)
-			}
-			return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
-		}
-	})
-
-	authProtectedRoutes := e.Group("")
-	authProtectedRoutes.Use(middleware.BasicAuth(authenticate))
-
-	authProtectedRoutes.GET("/download/:file", downloadFile)
-	authProtectedRoutes.POST("/page", createPage)
-	authProtectedRoutes.PATCH("/page/:id", updatePage)
-	e.GET("/page/:id", getPage)
-	authProtectedRoutes.POST("/upload", uploadFile)
-
-	e.GET("/editor", func(c echo.Context) error {
-
-		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html_templates.Editor))
-	})
-
-	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, fmt.Sprintf("ok"))
-	})
-
-	e.GET("/ip", func(c echo.Context) error {
-		clientIPAddress := c.RealIP()
-		countryCode, err := GetIPCountryISOCode(clientIPAddress)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
-	})
-
-	e.GET("/fwtest", func(c echo.Context) error {
-		clientIPAddress := c.RealIP()
-		countryCode, err := GetIPCountryISOCode(clientIPAddress)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
-	})
-
-	e.GET("/x-forwarded-port", func(c echo.Context) error {
-		xForwardedPort := c.Request().Header.Get("X-Forwarded-Port")
-		return c.String(http.StatusOK, fmt.Sprintf("X-Forwarded-Port: %s", xForwardedPort))
-	})
-
-	e.GET("/ip", func(c echo.Context) error {
-		clientIPAddress := c.RealIP()
-		countryCode, err := GetIPCountryISOCode(clientIPAddress)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
-	})
-
-	address := fmt.Sprintf(":%s", port)
-	fmt.Printf("Server is listening on port %s\n", port)
-	if isTLS {
-		if err := e.StartTLS(address, certFile, keyFile); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start HTTPS server on port %s: %v", port, err)
-		}
-	} else {
-		if err := e.Start(address); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start HTTP server on port %s: %v", port, err)
-		}
-	}
-
 }
 
 func getPage(c echo.Context) error {
@@ -563,6 +480,80 @@ func downloadFile(c echo.Context) error {
 
 	// Stream the file to the client
 	return c.File(filePath)
+}
+
+func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	e := echo.New()
+
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			clientIPAddress := c.RealIP()
+
+			if allowIP(clientIPAddress) {
+				return next(c)
+			}
+			return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+		}
+	})
+
+	authRoutes := e.Group("")
+	authRoutes.Use(middleware.BasicAuth(authenticate))
+
+	e.GET("/", func(c echo.Context) error {
+		return c.String(http.StatusOK, fmt.Sprintf("ok"))
+	})
+
+	authRoutes.GET("/download/:file", downloadFile)
+
+	e.GET("/editor", func(c echo.Context) error {
+		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html_templates.Editor))
+	})
+
+	e.GET("/fwtest", func(c echo.Context) error {
+		clientIPAddress := c.RealIP()
+		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
+	})
+
+	e.GET("/ip", func(c echo.Context) error {
+		clientIPAddress := c.RealIP()
+		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		if err != nil {
+			fmt.Println(err)
+		}
+		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
+	})
+
+	authRoutes.PATCH("/page/:id", updatePage)
+	authRoutes.POST("/page", createPage)
+	e.GET("/page/:id", getPage)
+
+	authRoutes.POST("/upload", uploadFile)
+
+	e.GET("/x-forwarded-port", func(c echo.Context) error {
+		xForwardedPort := c.Request().Header.Get("X-Forwarded-Port")
+		return c.String(http.StatusOK, fmt.Sprintf("X-Forwarded-Port: %s", xForwardedPort))
+	})
+
+	// Bind Listeners
+	address := fmt.Sprintf(":%s", port)
+	fmt.Printf("Server is listening on port %s\n", port)
+	if isTLS {
+		if err := e.StartTLS(address, certFile, keyFile); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start HTTPS server on port %s: %v", port, err)
+		}
+	} else {
+		if err := e.Start(address); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start HTTP server on port %s: %v", port, err)
+		}
+	}
+
 }
 
 func main() {

@@ -30,12 +30,16 @@ DROP INDEX idx_fw_rules_src_ip_net
 sqlite3 ucms.db "select * from fw_rules"
 sqlite3 ucms.db ".schema"
 sqlite3 ucms.db "delete from fw_rules"
-sqlite3 ucms.db "insert into country_code_rules (code, action) values ('Private', 'allow')"
-sqlite3 ucms.db "insert into country_code_rules (code, action) values ('US', 'allow')"
+sqlite3 ucms.db "insert into country_code_rules (code, action, priority) values ('Private', 'allow', 20)"
+e', 'allow', 20)"
+sqlite3 ucms.db "insert into country_code_rules (code, action, priority) values ('US', 'allow', 21)"
 sqlite3 ucms.db "select * from country_code_rules"
 sqlite3 ucms.db "delete from country_code_rules"
 
-sqlite3 ucms.db "delete from fw_rules;"
 sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10.1.1.0/24', 'allow', 10)"
 sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10.1.1.0/24', 'drop', 9)"
+
+
+sqlite3 ucms.db "delete from fw_rules" && sqlite3 ucms.db "delete from country_code_rules"
+sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10.1.1.0/24', 'allow', 10)"
 ```

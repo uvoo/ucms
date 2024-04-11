@@ -190,23 +190,23 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-func GetIPCountryISOCode(ipAddress string) (string, error) {
-	ipo := net.ParseIP(ipAddress)
-	if isPrivateIP(ipo) == true {
+func GetIPCountryISOCode(ipString string) (string, error) {
+	ipAddr := net.ParseIP(ipString)
+	if ipAddr == nil {
+		msg := fmt.Sprintf("Invalid IP address:", ipAddress)
+		return "", errors.New(msg)
+	}
+
+	if isPrivateIP(ipAddr) == true {
 		return "Private", nil
 	}
+
 	db, err := maxminddb.Open("GeoLite2-Country.mmdb")
 	if err != nil {
 		msg := fmt.Sprintf("Error opening database:", err)
 		return "", errors.New(msg)
 	}
 	defer db.Close()
-
-	ip := net.ParseIP(ipAddress)
-	if ip == nil {
-		msg := fmt.Sprintf("Invalid IP address:", ipAddress)
-		return "", errors.New(msg)
-	}
 
 	var record struct {
 		Country struct {
@@ -218,6 +218,7 @@ func GetIPCountryISOCode(ipAddress string) (string, error) {
 		msg := fmt.Sprintf("Error looking up IP address:", err)
 		return "", errors.New(msg)
 	}
+
 	return record.Country.ISOCode, nil
 }
 

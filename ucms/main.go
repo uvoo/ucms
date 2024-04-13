@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/microcosm-cc/bluemonday"
+	html_template "html/template"
 	"regexp"
 	"strconv"
 	"text/template"
@@ -39,7 +40,13 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/pquerna/otp/totp"
+	// "net/url"
 )
+
+var recaptchav3SiteKey string
 
 type Status string
 type Action string
@@ -63,6 +70,30 @@ const (
 	Inbound Direction = "inbound"
 	// Outbound    Direction = "outbound"
 )
+
+type User struct {
+	ID       uint   `gorm:"primaryKey"`
+	Username string `gorm:"unique"`
+	Password string
+	Secret   string // For storing the OTP secret
+	Name     string `gorm:"not null"`
+	Email    string `gorm:"unique;not null"`
+}
+
+// Define your JWT Claims structure
+type JwtCustomClaims struct {
+	ID       uint   `json:"id"`
+	Username string `json:"username"`
+	jwt.StandardClaims
+}
+
+/*
+type User struct {
+	ID    uint   `gorm:"primaryKey"`
+	Name  string `gorm:"not null"`
+	Email string `gorm:"unique;not null"`
+}
+*/
 
 type NetIPNet struct {
 	*net.IPNet
@@ -482,20 +513,102 @@ func downloadFile(c echo.Context) error {
 	return c.File(filePath)
 }
 
+func xgetEnvOrDefault(envVarName string, defaultValue string) string {
+	envVarValue, exists := os.LookupEnv(envVarName)
+
+	if exists {
+		return envVarValue
+	} else {
+		return defaultValue
+	}
+}
+
+func getEnvOrDefault(envVarName string, defaultValue string, required bool) (string, error) {
+	envVarValue, exists := os.LookupEnv(envVarName)
+	if exists {
+		return envVarValue, nil
+	}
+
+	if !required {
+		return defaultValue, nil
+	}
+
+	// if defaultValue == "" || defaultValue == nil {
+	if defaultValue == "" {
+		return "", errors.New("environment variable not set and no default value provided")
+	}
+
+	return defaultValue, nil
+}
+
+// func getSubmitPage(){
+// getSumitPage(recaptchav3SiteKey string){
+func getSubmitPage(c echo.Context) error {
+	// Example key-value pairs
+	data := map[string]interface{}{
+		"Recaptchav3SiteKey": recaptchav3SiteKey,
+	}
+
+	// Render the template file "template.tmpl" with the given data
+	// renderedTemplate, err := RenderTemplate("template.tmpl", data)
+	// renderedTemplate, err := RenderTemplate(html_templates.Submit, data)
+	renderedTemplate, err := RenderTemplate("templates/submit.html", data)
+	if err != nil {
+		log.Fatalf("Error rendering template: %v", err)
+	}
+
+	// Print the rendered template
+	// fmt.Println(renderedTemplate)
+	// return renderedTemplate
+	return c.HTML(http.StatusOK, fmt.Sprintf("%s", renderedTemplate))
+}
+
+func RenderTemplate(templateFile string, data map[string]interface{}) (string, error) {
+	tmpl, err := html_template.ParseFiles(templateFile)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+
+	err = tmpl.Execute(&buf, data)
+	if err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+func filterIP(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		clientIP := c.RealIP()
+		// fmt.Println("ip:", clientIP)
+
+		if allowIP(clientIP) {
+			return next(c)
+		}
+		// return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
+		return echo.NewHTTPError(http.StatusUnauthorized,
+			fmt.Sprintf("IP address %s not allowed", c.RealIP()))
+	}
+}
+
 func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	e := echo.New()
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	// e.IPExtractor = middleware.RealIPWithUntrustedHeader
+	e.Use(filterIP)
 
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			clientIPAddress := c.RealIP()
-
-			if allowIP(clientIPAddress) {
-				return next(c)
-			}
-			return echo.NewHTTPError(http.StatusForbidden, "Forbidden")
-		}
+	r := e.Group("/secure")
+	r.Use(middleware.JWT([]byte("secret")))
+	r.GET("", func(c echo.Context) error {
+		user := c.Get("user").(*jwt.Token)
+		claims := user.Claims.(jwt.MapClaims)
+		username := claims["username"].(string)
+		return c.String(http.StatusOK, "Welcome "+username+"!")
 	})
 
 	authRoutes := e.Group("")
@@ -514,6 +627,7 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 	e.GET("/fwtest", func(c echo.Context) error {
 		clientIPAddress := c.RealIP()
 		countryCode, err := GetIPCountryISOCode(clientIPAddress)
+		// fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -530,11 +644,31 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
 	})
 
+	e.POST("/login", postLogin)
 	authRoutes.PATCH("/page/:id", updatePage)
 	authRoutes.POST("/page", createPage)
 	e.GET("/page/:id", getPage)
 
 	authRoutes.POST("/upload", uploadFile)
+
+	// e.GET("/submit", getSumitPage(recaptchav3SiteKey))
+	e.GET("/submit", getSubmitPage)
+	//e.GET("/submit", func(c echo.Context) error {
+	//		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html_templates.Submit))
+	//	})
+
+	e.POST("/submit", func(c echo.Context) error {
+		name := c.FormValue("name")
+		email := c.FormValue("email")
+
+		user := User{Name: name, Email: email}
+
+		if err := db.Create(&user).Error; err != nil {
+			return err
+		}
+
+		return c.String(http.StatusOK, "User successfully created")
+	})
 
 	e.GET("/x-forwarded-port", func(c echo.Context) error {
 		xForwardedPort := c.Request().Header.Get("X-Forwarded-Port")
@@ -556,6 +690,56 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 
 }
 
+func postLogin(c echo.Context) error {
+	fmt.Println("foo")
+	// e.POST("/login", func(c echo.Context) error {
+	// Get username and password from request
+	username := c.FormValue("username")
+	password := c.FormValue("password")
+
+	// Authenticate user (this is a simple example, you should hash and compare passwords securely)
+	var user User
+	if err := db.Where("username = ?", username).First(&user).Error; err != nil {
+		fmt.Println(err)
+		return echo.ErrUnauthorized
+	}
+	if user.Password != password {
+		fmt.Println("unauth")
+		return echo.ErrUnauthorized
+	}
+
+	// Generate OTP secret and store it
+	secret, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "YourAppName",
+		AccountName: user.Username,
+	})
+	if err != nil {
+		return err
+	}
+	user.Secret = secret.Secret()
+	db.Save(&user)
+
+	// Create JWT token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, JwtCustomClaims{
+		ID:       user.ID,
+		Username: user.Username,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(time.Hour * 72).Unix(), // Token valid for 3 days
+		},
+	})
+
+	// Sign the token with your secret
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		return err
+	}
+
+	// Return the token
+	return c.JSON(http.StatusOK, map[string]string{
+		"token": tokenString,
+	})
+}
+
 func main() {
 	httpPort := flag.String("http-port", "18080", "HTTP port number")
 	httpsPort := flag.String("https-port", "18443", "HTTPS port number")
@@ -563,6 +747,8 @@ func main() {
 
 	certFile := "cert.pem"
 	keyFile := "key.pem"
+
+	recaptchav3SiteKey, _ = getEnvOrDefault("RECAPTCHAV3_SITE_KEY", "", true)
 
 	var err error
 	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
@@ -577,6 +763,12 @@ func main() {
 		panic(err)
 	}
 	if err := db.AutoMigrate(&FWRule{}); err != nil {
+		panic(err)
+	}
+	if err := db.AutoMigrate(&User{}); err != nil {
+		panic(err)
+	}
+	if err := db.AutoMigrate(&JwtCustomClaims{}); err != nil {
 		panic(err)
 	}
 

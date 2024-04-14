@@ -44,120 +44,24 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/pquerna/otp/totp"
 	// "net/url"
+	"uvoo.io/ucms/internal/models"
+	"uvoo.io/ucms/internal/database"
 )
+
+type NetIPNet struct {
+        *net.IPNet
+}
 
 var recaptchav3SiteKey string
 
-type Status string
-type Action string
-type Direction string
-
 const uploadUUID = "b28d974e-f742-11ee-950e-63fcdb6c8fb4"
 
-const (
-	Pending  Status = "pending"
-	Approved Status = "approved"
-	Rejected Status = "rejected"
-)
-
-const (
-	Allow   Action = "allow"
-	Deny    Action = "deny"
-	Observe Action = "observe"
-)
-
-const (
-	Inbound Direction = "inbound"
-	// Outbound    Direction = "outbound"
-)
-
-type User struct {
-	ID       uint   `gorm:"primaryKey"`
-	Username string `gorm:"unique"`
-	Password string
-	Secret   string // For storing the OTP secret
-	Name     string `gorm:"not null"`
-	Email    string `gorm:"unique;not null"`
-}
-
-// Define your JWT Claims structure
-type JwtCustomClaims struct {
-	ID       uint   `json:"id"`
-	Username string `json:"username"`
-	jwt.StandardClaims
-}
-
-/*
-type User struct {
-	ID    uint   `gorm:"primaryKey"`
-	Name  string `gorm:"not null"`
-	Email string `gorm:"unique;not null"`
-}
-*/
-
-type NetIPNet struct {
-	*net.IPNet
-}
+// var db *gorm.DB
 
 // Contains checks if the IP is within the subnet.
 func (n NetIPNet) Contains(ip net.IP) bool {
 	return n.IPNet.Contains(ip)
 }
-
-// SrcIP   net.IP `gorm:"uniqueIndex"`
-// SrcIPNet *net.IPNet `gorm:"uniqueIndex"`
-type FWRule struct {
-	ID uint `gorm:"primaryKey"`
-	// SrcIPNet NetIPNet       `gorm:"uniqueIndex;type:jsonb"`
-	// SrcIPNet string `gorm:"uniqueIndex"`
-	// SrcIPNet string `gorm:"uniqueIndex:idx_action_src_ip_net"`
-	SrcIPNet string `gorm:"idx_direction__action__src_ip_net"`
-	// Action   Action
-	// SrcIP    string `gorm:"uniqueIndex:idx_src_ip_action"`
-	Action Action `gorm:"not null:default:'allow':idx_direction__action__src_ip_net"`
-	// Priority  int `gorm:"not null:idx_action__priority"`
-	Priority int `gorm:"not null:idx_direction__priority"`
-	// Direction Direction `gorm:"not null:default:'inbound':idx_direction__priority:idx_direction__action__src_ip_net"`
-	Direction Direction `gorm:"default:'inbound':idx_direction__priority:idx_direction__action__src_ip_net"`
-
-	Active    bool `gorm:"default:true"`
-	Log       bool `gorm:"default:false"`
-	Note      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
-}
-
-type CountryCodeRule struct {
-	ID        uint   `gorm:"primaryKey"`
-	Code      string `gorm:"not null"`
-	Action    Action `gorm:"not null"`
-	Priority  int    `gorm:"not null:idx_action__priority"`
-	Active    bool   `gorm:"default:true"`
-	Log       bool   `gorm:"default:false"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
-}
-
-type Page struct {
-	// ID       int    `gorm:"primary_key"`
-	// ID             uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4();primary_key;"`
-	// ID   string `json:"id" gorm:"type:uuid;primary_key"`
-	ID       uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Title    string    `json:"title"`
-	Content  string    `json:"content"`
-	Template string    `json:"template"`
-	Name     string    `json:"name"`
-	Path     string    `json:"path"`
-	Visits   int       `json:"visits"`
-	// Slug string `json:"slug"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
-}
-
-var db *gorm.DB
 
 func WIPGetIPCityISOCode() {
 	// Open the MaxMind GeoIP2 City database
@@ -372,16 +276,16 @@ func CheckIPInSubnet(ipStr string, subnetStr string) (bool, error) {
 }
 
 func allowIP(clientIP string) bool {
-	var fwRules []FWRule
-	db.Order("priority ASC").Find(&fwRules)
+	var fwRules []models.FWRule
+	database.DBCon.Order("priority ASC").Find(&fwRules)
 	// net.ParseIP(clientIPAddress)
 	for _, fwRule := range fwRules {
 		// fmt.Println("fwRule: %v", fwRule)
-		var contains bool
-		contains, _ = CheckIPInSubnet(clientIP, fwRule.SrcIPNet)
-		if fwRule.Active == true && fwRule.Action == Deny && contains == true {
+		var srcIPInSubnet bool
+		srcIPInSubnet, _ = CheckIPInSubnet(clientIP, fwRule.SrcIPNet)
+		if fwRule.Active == true && fwRule.Action == models.Deny && srcIPInSubnet == true {
 			return false
-		} else if fwRule.Active == true && fwRule.Action == Allow && contains == true {
+		} else if fwRule.Active == true && fwRule.Action == models.Allow && srcIPInSubnet == true {
 			return true
 		} else {
 			return false
@@ -393,8 +297,8 @@ func allowIP(clientIP string) bool {
 		msg := fmt.Sprintf("Error:", err)
 		fmt.Println(msg)
 	}
-	var countryCodeRules []CountryCodeRule
-	db.Order("priority ASC").Find(&countryCodeRules)
+	var countryCodeRules []models.CountryCodeRule
+	database.DBCon.Order("priority ASC").Find(&countryCodeRules)
 	for _, countryCodeRule := range countryCodeRules {
 		if countryCodeRule.Code == clientCountryCode {
 			return true
@@ -408,13 +312,13 @@ func getPage(c echo.Context) error {
 	path := c.Request().URL.Path
 	fmt.Println("path: ", path)
 	id := c.Param("id")
-	var page Page
+	var page models.Page
 	if isUUID(id) {
-		if err := db.Where("id = ?", id).First(&page).Error; err != nil {
+		if err := database.DBCon.Where("id = ?", id).First(&page).Error; err != nil {
 			return c.String(http.StatusNotFound, "Page not found")
 		}
 	} else {
-		if err := db.Where("name = ?", id).First(&page).Error; err != nil {
+		if err := database.DBCon.Where("name = ?", id).First(&page).Error; err != nil {
 			return c.String(http.StatusNotFound, "Page not found")
 		}
 	}
@@ -439,9 +343,9 @@ func getPage(c echo.Context) error {
 func updatePage(c echo.Context) error {
 	fmt.Println("pagefoo")
 	id := c.Param("id")
-	page := new(Page)
+	page := new(models.Page)
 
-	if err := db.First(&page, "id = ?", id).Error; err != nil {
+	if err := database.DBCon.First(&page, "id = ?", id).Error; err != nil {
 		return err
 	}
 
@@ -449,7 +353,7 @@ func updatePage(c echo.Context) error {
 		return err
 	}
 
-	if err := db.Save(page).Error; err != nil {
+	if err := database.DBCon.Save(page).Error; err != nil {
 		return err
 	}
 
@@ -457,14 +361,14 @@ func updatePage(c echo.Context) error {
 }
 
 func createPage(c echo.Context) error {
-	page := new(Page)
+	page := new(models.Page)
 	if err := c.Bind(page); err != nil {
 		return err
 	}
 	if page.ID == uuid.Nil {
 		page.ID = uuid.New()
 	}
-	db.Create(&page)
+	database.DBCon.Create(&page)
 	return c.JSON(http.StatusCreated, page)
 }
 
@@ -661,9 +565,9 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 		name := c.FormValue("name")
 		email := c.FormValue("email")
 
-		user := User{Name: name, Email: email}
+		user := models.User{Name: name, Email: email}
 
-		if err := db.Create(&user).Error; err != nil {
+		if err := database.DBCon.Create(&user).Error; err != nil {
 			return err
 		}
 
@@ -698,8 +602,8 @@ func postLogin(c echo.Context) error {
 	password := c.FormValue("password")
 
 	// Authenticate user (this is a simple example, you should hash and compare passwords securely)
-	var user User
-	if err := db.Where("username = ?", username).First(&user).Error; err != nil {
+	var user models.User
+	if err := database.DBCon.Where("username = ?", username).First(&user).Error; err != nil {
 		fmt.Println(err)
 		return echo.ErrUnauthorized
 	}
@@ -717,10 +621,10 @@ func postLogin(c echo.Context) error {
 		return err
 	}
 	user.Secret = secret.Secret()
-	db.Save(&user)
+	database.DBCon.Save(&user)
 
 	// Create JWT token
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, JwtCustomClaims{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, models.JwtCustomClaims{
 		ID:       user.ID,
 		Username: user.Username,
 		StandardClaims: jwt.StandardClaims{
@@ -751,34 +655,12 @@ func main() {
 	recaptchav3SiteKey, _ = getEnvOrDefault("RECAPTCHAV3_SITE_KEY", "", true)
 
 	var err error
-	db, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
+	database.DBCon, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
 	if err != nil {
 		panic(err)
+		// log.Fatal(err)
 	}
-	if err := db.AutoMigrate(&Page{}); err != nil {
-		panic(err)
-		// e.Logger.Fatal(err)
-	}
-	if err := db.AutoMigrate(&CountryCodeRule{}); err != nil {
-		panic(err)
-	}
-	if err := db.AutoMigrate(&FWRule{}); err != nil {
-		panic(err)
-	}
-	if err := db.AutoMigrate(&User{}); err != nil {
-		panic(err)
-	}
-	if err := db.AutoMigrate(&JwtCustomClaims{}); err != nil {
-		panic(err)
-	}
-
-	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_direction__priority ON fw_rules (direction, priority)").Error; err != nil {
-		panic("failed to create unique index")
-		// fmt.Println("failed to create unique index")
-	}
-	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_direction__action__src_ip_net ON fw_rules (direction, action, src_ip_net)").Error; err != nil {
-		panic("failed to create unique index")
-	}
+	models.Migrate()
 
 	var wg sync.WaitGroup
 

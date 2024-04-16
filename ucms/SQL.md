@@ -42,4 +42,9 @@ sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10
 
 sqlite3 ucms.db "delete from fw_rules" && sqlite3 ucms.db "delete from country_code_rules"
 sqlite3 ucms.db "insert into fw_rules (src_ip_net, action, priority) values ('10.1.1.0/24', 'allow', 10)"
+
+
+sqlite3 ucms.db "insert into country_code_rules (code, action, priority) values ('Private', 'allow', 20)"
+sqlite3 ucms.db "INSERT INTO users (username, password, name, email) VALUES ('foo', 'bar', 'foo test', 'foo@uvoo.io')"
+sqlite3 ucms.db "delete from users where name ='foo'"
 ```

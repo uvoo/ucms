@@ -85,7 +85,6 @@ func GetHTML(body string, title string, tplName string) (string, error) {
 }
 
 func GetSubnetFromIP(ipString string) (*net.IPNet, error) {
-	// func getSubnetFromIP(ipString string) (net.IP, error) {
 	if !strings.Contains(ipString, "/") {
 		if strings.Contains(ipString, ":") {
 			ipString += "/128" // IPv6 address
@@ -103,7 +102,6 @@ func GetSubnetFromIP(ipString string) (*net.IPNet, error) {
 }
 
 func subnetContains(subnet1, subnet2 string) bool {
-	// Parse subnets
 	_, subnetObj1, err := net.ParseCIDR(subnet1)
 	if err != nil {
 		return false
@@ -215,6 +213,37 @@ func GetIPCountryISOCode(ipString string) (string, error) {
 	return record.Country.ISOCode, nil
 }
 
+func WIPGetIPCityISOCode(ipString string) (string, error) {
+	db, err := maxminddb.Open("GeoIP2-City.mmdb")
+	if err != nil {
+		fmt.Println("Error opening database:", err)
+		return "", err
+	}
+	defer db.Close()
+
+	ip := net.ParseIP(ipString)
+
+	var record struct {
+		City struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"city"`
+		Country struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"country"`
+	}
+
+	err = db.Lookup(ip, &record)
+	if err != nil {
+		fmt.Println("Error looking up IP address:", err)
+		return "", err
+	}
+
+	cityName := record.City.Names["en"]
+	countryName := record.Country.Names["en"]
+	fmt.Printf("IP address %s is located in %s, %s\n", ip, cityName, countryName)
+	return cityName, nil
+}
+
 func Authenticate(username, password string, c echo.Context) (bool, error) {
 	if username == "username" && password == "password" {
 		return true, nil
@@ -244,9 +273,11 @@ func GetEnvOrDefault(envVarName string, defaultValue string, required bool) (str
 		return defaultValue, nil
 	}
 
-	// if defaultValue == "" || defaultValue == nil {
 	if defaultValue == "" {
-		return "", errors.New("environment variable not set and no default value provided")
+		// return "", errors.New("environment variable %s not set and no default value provided", envVarName)
+		return "", errors.New(fmt.Sprintf("Environment variable %s is not set.", envVarName))
+		// Log.error("E: Environment variable %s is not set.", envVarName))
+		// panic(err)
 	}
 
 	return defaultValue, nil
@@ -271,7 +302,6 @@ func RenderTemplate(templateFile string, data map[string]interface{}) (string, e
 func FilterIP(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientIP := c.RealIP()
-		// fmt.Println("ip:", clientIP)
 
 		if AllowIP(clientIP) {
 			return next(c)

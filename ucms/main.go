@@ -1,74 +1,42 @@
 package main
 
 import (
-	"fmt"
-	// "io"
-	// "os"
-	// "path/filepath"
-	// "io/ioutil"
-	"net/http"
-
-	"github.com/labstack/echo/v4"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	// _ "github.com/mattn/go-sqlite3"
-	// "os"
-
-	// "github.com/gomarkdown/markdown"
-	// "github.com/gomarkdown/markdown/ast"
-	// "bytes"
-	// "github.com/gomarkdown/markdown/html"
-	// "github.com/gomarkdown/markdown/parser"
-	// "github.com/google/uuid"
-	"github.com/labstack/echo/v4/middleware"
-	// "github.com/microcosm-cc/bluemonday"
-	// html_template "html/template"
-	// "regexp"
-	// "strconv"
-	// "text/template"
-	"uvoo.io/ucms/html_templates"
-
-	// "errors"
 	"flag"
-	// "fmt"
+	"fmt"
 	"log"
-	// "net/http"
+	"net"
+	"net/http"
 	"sync"
 
-	// "github.com/labstack/echo/v4"
-	"github.com/oschwald/maxminddb-golang"
-	"net"
-	// "strings"
-	// "time"
-
 	"github.com/golang-jwt/jwt"
-	// "github.com/pquerna/otp/totp"
-	// "net/url"
-	"uvoo.io/ucms/internal/models"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	"github.com/oschwald/maxminddb-golang"
+	// "github.com/sirupsen/logrus"
+	// "github.com/sirupsen/logrus/hooks/syslog"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+
+	"uvoo.io/ucms/html_templates"
 	"uvoo.io/ucms/internal/database"
 	"uvoo.io/ucms/internal/handlers"
+	"uvoo.io/ucms/internal/models"
 	"uvoo.io/ucms/internal/utils"
 )
 
-// recaptchav3SiteKey, _ = utils.getEnvOrDefault("RECAPTCHAV3_SITE_KEY", "", true)
-
 type NetIPNet struct {
-        *net.IPNet
+	*net.IPNet
 }
 
-// var recaptchav3SiteKey string
+var recaptchav3SiteKey string
 
 const uploadUUID = "b28d974e-f742-11ee-950e-63fcdb6c8fb4"
 
-// var db *gorm.DB
-
-// Contains checks if the IP is within the subnet.
 func (n NetIPNet) Contains(ip net.IP) bool {
 	return n.IPNet.Contains(ip)
 }
 
 func WIPGetIPCityISOCode() {
-	// Open the MaxMind GeoIP2 City database
 	db, err := maxminddb.Open("GeoIP2-City.mmdb")
 	if err != nil {
 		fmt.Println("Error opening database:", err)
@@ -76,10 +44,8 @@ func WIPGetIPCityISOCode() {
 	}
 	defer db.Close()
 
-	// IP address to look up
-	ip := net.ParseIP("8.8.8.8") // Example IP address, you can change it to any IP you want to look up
+	ip := net.ParseIP("8.8.8.8")
 
-	// Define a struct to store the result of the lookup
 	var record struct {
 		City struct {
 			Names map[string]string `maxminddb:"names"`
@@ -99,7 +65,6 @@ func WIPGetIPCityISOCode() {
 	countryName := record.Country.Names["en"]
 	fmt.Printf("IP address %s is located in %s, %s\n", ip, cityName, countryName)
 }
-
 
 func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -135,7 +100,6 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 	e.GET("/fwtest", func(c echo.Context) error {
 		clientIPAddress := c.RealIP()
 		countryCode, err := utils.GetIPCountryISOCode(clientIPAddress)
-		// fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -159,11 +123,9 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 
 	authRoutes.POST("/upload", handlers.UploadFile)
 
-	// e.GET("/submit", getSumitPage(recaptchav3SiteKey))
-	e.GET("/submit", handlers.GetSubmit)
-	//e.GET("/submit", func(c echo.Context) error {
-	//		return c.HTML(http.StatusOK, fmt.Sprintf("%s", html_templates.Submit))
-	//	})
+	e.GET("/submit", func(c echo.Context) error {
+		return handlers.GetSubmit(c, recaptchav3SiteKey)
+	})
 
 	e.POST("/submit", func(c echo.Context) error {
 		name := c.FormValue("name")
@@ -199,6 +161,21 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 }
 
 func main() {
+	var err error
+	// log.SetFlags(log.LstdFlags | log.LUTC)
+	// logrus.SetFormatter(&logrus.TextFormatter{})
+	// logrus.SetLevel(logrus.InfoLevel)
+
+	/*
+	   	logger := logrus.New()
+	   	hook, err := syslog.NewSyslogHook("", "", 0, "")
+	   	if err != nil {
+	   		logger.Fatal("Failed to initialize syslog hook:", err)
+	   	}
+	   	logger.AddHook(hook)
+	    // logger.Fatal("Error:", err)
+	*/
+
 	httpPort := flag.String("http-port", "18080", "HTTP port number")
 	httpsPort := flag.String("https-port", "18443", "HTTPS port number")
 	flag.Parse()
@@ -206,9 +183,11 @@ func main() {
 	certFile := "cert.pem"
 	keyFile := "key.pem"
 
-	// recaptchav3SiteKey, _ = utils.GetEnvOrDefault("RECAPTCHAV3_SITE_KEY", "", true)
+	recaptchav3SiteKey, err = utils.GetEnvOrDefault("RECAPTCHAV3_SITE_KEY", "", true)
+	if err != nil {
+		log.Fatal("Error:", err)
+	}
 
-	var err error
 	database.DBCon, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
 	if err != nil {
 		panic(err)

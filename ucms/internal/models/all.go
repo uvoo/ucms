@@ -7,6 +7,7 @@ import (
 func Migrate() {
 	if err := database.DBCon.AutoMigrate(
 		&Page{},
+		&CityCodeRule{},
 		&CountryCodeRule{},
 		&FWRule{},
 		&User{},

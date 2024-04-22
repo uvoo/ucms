@@ -113,6 +113,18 @@ type CountryCodeRule struct {
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
+type CityCodeRule struct {
+	ID        uint   `gorm:"primaryKey"`
+	Code      string `gorm:"not null"`
+	Action    Action `gorm:"not null"`
+	Priority  int    `gorm:"not null:idx_action__priority"`
+	Active    bool   `gorm:"default:true"`
+	Log       bool   `gorm:"default:false"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
 type Page struct {
 	// ID       int    `gorm:"primary_key"`
 	// ID             uuid.UUID `gorm:"type:uuid;default:uuid_generate_v4();primary_key;"`

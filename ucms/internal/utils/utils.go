@@ -170,6 +170,19 @@ func AllowIP(clientIP string) bool {
 		}
 	}
 
+	clientCityCode, clientCountryCode, err := GetIPCityCountryISOCode(clientIP)
+	if err != nil {
+		msg := fmt.Sprintf("Error:", err)
+		fmt.Println(msg)
+	}
+	var cityCodeRules []models.CityCodeRule
+	database.DBCon.Order("priority ASC").Find(&cityCodeRules)
+	for _, cityCodeRule := range cityCodeRules {
+		if cityCodeRule.Code == clientCityCode {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -216,11 +229,11 @@ func GetIPCountryISOCode(ipString string) (string, error) {
 	return record.Country.ISOCode, nil
 }
 
-func WIPGetIPCityISOCode(ipString string) (string, error) {
+func GetIPCityCountryISOCode(ipString string) (string, string, error) {
 	db, err := maxminddb.Open(config.GeoLite2CityMMDBFile)
 	if err != nil {
 		fmt.Println("Error opening database:", err)
-		return "", err
+		return "", "", err
 	}
 	defer db.Close()
 
@@ -238,13 +251,13 @@ func WIPGetIPCityISOCode(ipString string) (string, error) {
 	err = db.Lookup(ip, &record)
 	if err != nil {
 		fmt.Println("Error looking up IP address:", err)
-		return "", err
+		return "", "", err
 	}
 
 	cityName := record.City.Names["en"]
 	countryName := record.Country.Names["en"]
 	fmt.Printf("IP address %s is located in %s, %s\n", ip, cityName, countryName)
-	return cityName, nil
+	return cityName, countryName, nil
 }
 
 func Authenticate(username, password string, c echo.Context) (bool, error) {

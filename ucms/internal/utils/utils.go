@@ -4,11 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/gomarkdown/markdown"
-	"github.com/gomarkdown/markdown/html"
-	"github.com/gomarkdown/markdown/parser"
-	"github.com/labstack/echo/v4"
-	"github.com/oschwald/maxminddb-golang"
 	html_template "html/template"
 	"net"
 	"net/http"
@@ -17,7 +12,15 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/gomarkdown/markdown"
+	"github.com/gomarkdown/markdown/html"
+	"github.com/gomarkdown/markdown/parser"
+	"github.com/labstack/echo/v4"
+	"github.com/oschwald/maxminddb-golang"
+
 	"uvoo.io/ucms/html_templates"
+	"uvoo.io/ucms/internal/config"
 	"uvoo.io/ucms/internal/database"
 	"uvoo.io/ucms/internal/models"
 )

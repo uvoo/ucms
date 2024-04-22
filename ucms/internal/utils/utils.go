@@ -192,7 +192,7 @@ func GetIPCountryISOCode(ipString string) (string, error) {
 		return "Private", nil
 	}
 
-	db, err := maxminddb.Open("GeoLite2-Country.mmdb")
+	db, err := maxminddb.Open(config.GeoLite2CountryMMDBFile)
 	if err != nil {
 		msg := fmt.Sprintf("Error opening database:", err)
 		return "", errors.New(msg)
@@ -214,7 +214,7 @@ func GetIPCountryISOCode(ipString string) (string, error) {
 }
 
 func WIPGetIPCityISOCode(ipString string) (string, error) {
-	db, err := maxminddb.Open("GeoIP2-City.mmdb")
+	db, err := maxminddb.Open(config.GeoLite2CityMMDBFile)
 	if err != nil {
 		fmt.Println("Error opening database:", err)
 		return "", err

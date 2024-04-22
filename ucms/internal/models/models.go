@@ -93,12 +93,12 @@ type FWRule struct {
 	// Direction Direction `gorm:"not null:default:'inbound':idx_direction__priority:idx_direction__action__src_ip_net"`
 	Direction Direction `gorm:"default:'inbound':idx_direction__priority:idx_direction__action__src_ip_net"`
 
-	Active    bool `gorm:"default:true"`
-	Log       bool `gorm:"default:false"`
-	Note      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	Active bool `gorm:"default:true"`
+	Log    bool `gorm:"default:false"`
+	Note   string
+	// CreatedAt time.Time
+	// UpdatedAt time.Time
+	// DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
 type CountryCodeRule struct {

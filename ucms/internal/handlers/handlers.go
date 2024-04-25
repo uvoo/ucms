@@ -10,7 +10,6 @@ import (
 	"uvoo.io/ucms/internal/database"
 	"uvoo.io/ucms/internal/models"
 	"uvoo.io/ucms/internal/utils"
-	"uvoo.io/ucms/internal/templates"
 	// "github.com/gomarkdown/markdown/html"
 	"github.com/golang-jwt/jwt"
 	"github.com/pquerna/otp/totp"
@@ -188,7 +187,7 @@ func GetSubmit(c echo.Context, recaptchav3SiteKey string) error {
 	// Render the template file "template.tmpl" with the given data
 	// renderedTemplate, err := RenderTemplate("template.tmpl", data)
 	// renderedTemplate, err := RenderTemplate(html_templates.Submit, data)
-	renderedTemplate, err := utils.RenderTemplate("templates/submit.html", data)
+	renderedTemplate, err := utils.RenderTemplate("tpls/submit.html", data)
 	if err != nil {
 		log.Fatalf("Error rendering template: %v", err)
 	}

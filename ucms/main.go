@@ -17,6 +17,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"uvoo.io/ucms/internal/config"
 	"uvoo.io/ucms/html_templates"
 	"uvoo.io/ucms/internal/database"
 	"uvoo.io/ucms/internal/handlers"
@@ -188,7 +189,7 @@ func main() {
 		log.Fatal("Error:", err)
 	}
 
-	database.DBCon, err = gorm.Open(sqlite.Open("ucms.db"), &gorm.Config{})
+	database.DBCon, err = gorm.Open(sqlite.Open(config.DBFile), &gorm.Config{})
 	if err != nil {
 		panic(err)
 		// log.Fatal(err)

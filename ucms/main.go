@@ -25,6 +25,12 @@ import (
 	"uvoo.io/ucms/internal/utils"
 )
 
+type IPInfo struct {
+    CountryISOCode string
+    Subdivision    string
+    City           string
+}
+
 type NetIPNet struct {
 	*net.IPNet
 }
@@ -108,6 +114,26 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 		return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
 	})
 
+	// e.POST("/geocheck", handlers.GeoCheck)
+	e.GET("/geoinfo", func(c echo.Context) error {
+		clientIPAddress := c.RealIP()
+		// countryCode, state, city, err := utils.GetIPGeoInfo(clientIPAddress)
+		// countryCode, state, city, err := utils.GetIPGeoInfo(clientIPAddress)
+		info, err :=  utils.GetIPGeoInfo(clientIPAddress)
+		if err != nil {
+			fmt.Println(err)
+		}
+        response := map[string]string{
+            "country_iso_code": info.CountryISOCode,
+            "state": info.Subdivision,
+            "city": info.City,
+        }
+        // Return JSON response with status code 200
+        return c.JSON(http.StatusOK, response)
+
+		// return c.String(http.StatusOK, fmt.Sprintf("IP: %s Country: %s", clientIPAddress, countryCode))
+	})
+
 	e.GET("/ip", func(c echo.Context) error {
 		clientIPAddress := c.RealIP()
 		countryCode, err := utils.GetIPCountryISOCode(clientIPAddress)
@@ -163,6 +189,7 @@ func startServer(port string, isTLS bool, certFile, keyFile string, wg *sync.Wai
 
 func main() {
 	var err error
+
 	// log.SetFlags(log.LstdFlags | log.LUTC)
 	// logrus.SetFormatter(&logrus.TextFormatter{})
 	// logrus.SetLevel(logrus.InfoLevel)

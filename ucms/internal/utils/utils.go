@@ -25,6 +25,14 @@ import (
 	"uvoo.io/ucms/internal/models"
 )
 
+
+type IPInfo struct {
+    CountryISOCode string
+    Subdivision    string
+    City           string
+}
+
+
 func isPrivateIP(ip net.IP) bool {
 	privateIPv4Blocks := []*net.IPNet{
 		{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
@@ -259,6 +267,158 @@ func GetIPCityCountryISOCode(ipString string) (string, string, error) {
 	fmt.Printf("IP address %s is located in %s, %s\n", ip, cityName, countryName)
 	return cityName, countryName, nil
 }
+
+/*
+func GetIPGeoInfo(ipString string) (string, string, string, error) {
+	db, err := maxminddb.Open(config.GeoLite2CityMMDBFile)
+	if err != nil {
+		fmt.Println("Error opening database:", err)
+		return "", "", "", err
+	}
+	defer db.Close()
+
+	ip := net.ParseIP(ipString)
+
+	var record struct {
+		City struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"city"`
+		Country struct {
+			Names map[string]string `maxminddb:"names"`
+		} `maxminddb:"country"`
+	}
+
+	err = db.Lookup(ip, &record)
+	if err != nil {
+		fmt.Println("Error looking up IP address:", err)
+		return "", "", "", err
+	}
+
+	cityName := record.City.Names["en"]
+	countryName := record.Country.Names["en"]
+	stateName := record.Subdivisions.Names["en"]
+	countryISOCode := record.Country.iso_code
+	fmt.Printf("IP address %s is located in %s, %s\n", ip, cityName, countryName)
+    return countryISOCode, stateName, cityName, nil
+
+/*
+    e.GET("/", func(c echo.Context) error {
+        // Create a map to hold the JSON response
+        response := map[string]string{
+            "country_iso_code": countryISOCode,
+            "state": stateName,
+            "city": cityName,
+        }
+        // Return JSON response with status code 200
+        return c.JSON(http.StatusOK, response)
+    })
+*/
+// }
+
+func GetIPGeoInfo(ipAddress string) (*IPInfo, error) {
+    // Open the MaxMind GeoLite2-City database
+    db, err := maxminddb.Open(config.GeoLite2CityMMDBFile)
+    if err != nil {
+        return nil, err
+    }
+    defer db.Close()
+
+    // Parse the IP address
+    ip := net.ParseIP(ipAddress)
+    if ip == nil {
+        return nil, errors.New("invalid IP address")
+    }
+
+    // Lookup the IP address in the database
+    var record struct {
+        Country struct {
+            ISOCode string `maxminddb:"iso_code"`
+        } `maxminddb:"country"`
+        Subdivisions []struct {
+            Name string `maxminddb:"name"`
+        } `maxminddb:"subdivisions"`
+        City struct {
+            Name string `maxminddb:"name"`
+        } `maxminddb:"city"`
+    }
+
+    if err := db.Lookup(ip, &record); err != nil {
+        return nil, err
+    }
+
+    // Create and populate the IPInfo struct
+    ipInfo := IPInfo{
+        CountryISOCode: record.Country.ISOCode,
+        City:           record.City.Name,
+    }
+
+    // Concatenate subdivision names if available
+    if len(record.Subdivisions) > 0 {
+        for _, sub := range record.Subdivisions {
+            ipInfo.Subdivision += sub.Name + ", "
+        }
+        // Remove the trailing comma and space
+        ipInfo.Subdivision = ipInfo.Subdivision[:len(ipInfo.Subdivision)-2]
+    }
+
+    return &ipInfo, nil
+}
+
+/*
+func GetIPGeoInfo(ipAddress string) (*IPInfo, error) {
+type IPInfo struct {
+    CountryISOCode string
+    Subdivision    string
+    City           string
+}
+    // Open the MaxMind GeoLite2-City database
+    db, err := maxminddb.Open("GeoLite2-City.mmdb")
+    if err != nil {
+        return nil, err
+    }
+    defer db.Close()
+
+    // Parse the IP address
+    ip := net.ParseIP(ipAddress)
+    if ip == nil {
+        return nil, errors.New("invalid IP address")
+    }
+
+    // Lookup the IP address in the database
+    var record struct {
+        Country struct {
+            ISOCode string `maxminddb:"iso_code"`
+        } `maxminddb:"country"`
+        Subdivisions []struct {
+            Name string `maxminddb:"name"`
+        } `maxminddb:"subdivisions"`
+        City struct {
+            Name string `maxminddb:"name"`
+        } `maxminddb:"city"`
+    }
+
+    if err := db.Lookup(ip, &record); err != nil {
+        return nil, err
+    }
+
+    // Create and populate the IPInfo struct
+    ipInfo := IPInfo{
+        CountryISOCode: record.Country.ISOCode,
+        City:           record.City.Name,
+    }
+
+    // Concatenate subdivision names if available
+    if len(record.Subdivisions) > 0 {
+        for _, sub := range record.Subdivisions {
+            ipInfo.Subdivision += sub.Name + ", "
+        }
+        // Remove the trailing comma and space
+        ipInfo.Subdivision = ipInfo.Subdivision[:len(ipInfo.Subdivision)-2]
+    }
+
+    return &ipInfo, nil
+}
+*/
 
 func Authenticate(username, password string, c echo.Context) (bool, error) {
 	if username == "username" && password == "password" {

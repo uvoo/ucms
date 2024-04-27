@@ -28,6 +28,13 @@ import (
 )
 */
 
+
+type IPInfo struct {
+    CountryISOCode string
+    Subdivision    string
+    City           string
+}
+
 type Status string
 type Action string
 type Direction string
